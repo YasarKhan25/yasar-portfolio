@@ -1,7 +1,8 @@
 [build]
   base    = "frontend"
-  command = "npx vite build"
+  command = "npm install && ./node_modules/.bin/vite build"
   publish = "dist"
 
 [build.environment]
   NODE_VERSION = "18"
+  NODE_ENV     = "production"
