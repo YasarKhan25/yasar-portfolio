@@ -7,6 +7,10 @@ Mac/Linux: ./start.sh          (uses Gunicorn)
 import os, sys, platform
 from flask import Flask, jsonify, request, send_file, Response, stream_with_context
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# Load .env from the same directory as this file (if it exists)
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 app = Flask(__name__)
 
@@ -121,6 +125,11 @@ When asked about Unity/C#, provide concrete, copy-paste-ready code snippets.
 Keep answers focused and actionable. Format code with proper markdown code fences.
 Always suggest best practices and flag potential pitfalls."""
 
+# Maximum number of conversation turns kept per request (prevents oversized payloads)
+AGENT_MAX_HISTORY = 20
+# Maximum characters allowed per individual message content
+AGENT_MAX_CONTENT_CHARS = 8000
+
 @app.route('/api/agent/chat', methods=['POST'])
 def agent_chat():
     """AI coding agent powered by Claude claude-sonnet-4-5."""
@@ -140,10 +149,10 @@ def agent_chat():
     if not messages:
         return jsonify({"error": "No messages provided"}), 400
 
-    # Sanitise: keep only role/content fields, limit history to last 20 turns
+    # Sanitise: keep only role/content fields, limit history and per-message length
     safe_messages = [
-        {"role": m["role"], "content": str(m["content"])[:8000]}
-        for m in messages[-20:]
+        {"role": m["role"], "content": str(m["content"])[:AGENT_MAX_CONTENT_CHARS]}
+        for m in messages[-AGENT_MAX_HISTORY:]
         if m.get("role") in ("user", "assistant") and m.get("content")
     ]
     if not safe_messages:
