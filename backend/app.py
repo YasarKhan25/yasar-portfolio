@@ -5,7 +5,7 @@ Windows : .\\start.bat          (uses Waitress)
 Mac/Linux: ./start.sh          (uses Gunicorn)
 """
 import os, sys, platform
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, Response, stream_with_context
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -106,6 +106,75 @@ def resume():
                          download_name='Yasar_Khan_GameDev_Resume.pdf',
                          mimetype='application/pdf')
     return jsonify({"error": "Resume not found"}), 404
+
+# ─── AI CODING AGENT ─────────────────────────────
+AGENT_SYSTEM_PROMPT = """You are CodeCraft AI — a world-class coding assistant specialized in:
+• Unity Engine & C# game development (gameplay systems, AI, physics, shaders, optimization)
+• Python scripting, Flask APIs, and automation
+• JavaScript / React frontend development
+• Software architecture, design patterns, and code reviews
+• Debugging, profiling, and performance optimization
+• Git workflows and collaborative development best practices
+
+You give precise, working code examples with clear explanations. You think step-by-step.
+When asked about Unity/C#, provide concrete, copy-paste-ready code snippets.
+Keep answers focused and actionable. Format code with proper markdown code fences.
+Always suggest best practices and flag potential pitfalls."""
+
+@app.route('/api/agent/chat', methods=['POST'])
+def agent_chat():
+    """AI coding agent powered by Claude claude-sonnet-4-5."""
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    if not api_key:
+        return jsonify({"error": "AI agent not configured. Set ANTHROPIC_API_KEY environment variable."}), 503
+
+    try:
+        import anthropic as _anthropic
+    except ImportError:
+        return jsonify({"error": "anthropic package not installed. Run: pip install anthropic"}), 503
+
+    data     = request.get_json(silent=True) or {}
+    messages = data.get('messages', [])
+    stream   = data.get('stream', False)
+
+    if not messages:
+        return jsonify({"error": "No messages provided"}), 400
+
+    # Sanitise: keep only role/content fields, limit history to last 20 turns
+    safe_messages = [
+        {"role": m["role"], "content": str(m["content"])[:8000]}
+        for m in messages[-20:]
+        if m.get("role") in ("user", "assistant") and m.get("content")
+    ]
+    if not safe_messages:
+        return jsonify({"error": "No valid messages"}), 400
+
+    client = _anthropic.Anthropic(api_key=api_key)
+
+    if stream:
+        def generate():
+            with client.messages.stream(
+                model="claude-sonnet-4-5",
+                max_tokens=2048,
+                system=AGENT_SYSTEM_PROMPT,
+                messages=safe_messages,
+            ) as s:
+                for text in s.text_stream:
+                    yield text
+
+        return Response(
+            stream_with_context(generate()),
+            content_type='text/plain; charset=utf-8',
+        )
+
+    # Non-streaming (default)
+    resp = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=2048,
+        system=AGENT_SYSTEM_PROMPT,
+        messages=safe_messages,
+    )
+    return jsonify({"reply": resp.content[0].text})
 
 # ─── ENTRY POINT ─────────────────────────────────────
 if __name__ == '__main__':
